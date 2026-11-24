@@ -7,14 +7,24 @@ from rpyc.utils.server import ThreadedServer
 patients = {
     "P1001": {
         "name": "Jordan Poole",
+        "age": 27,
         "phone": "555-0100",
         "address": "10 Sample Street",
+        "department": "Cardiology",
+        "medical_history": ["high blood pressure"],
+        "diagnosis": "Hypertension",
+        "test_results": {"Blood test": {"blood_pressure": "150/90 mmHg"}},
         "version": 1
     },
     "P1002": {
         "name": "Taylor Swift",
+        "age": 36,
         "phone": "555-0101",
         "address": "20 Sample Street",
+        "department": "Neurology",
+        "medical_history": ["migraine headaches"],
+        "diagnosis": "Migraine",
+        "test_results": {"MRI": {"brain_scan": "no abnormalities found"}},
         "version": 1
     }
 }
@@ -36,6 +46,10 @@ class PatientRecords(rpyc.Service):
                 record["name"],
                 record["phone"],
                 record["address"],
+                record["department"],
+                record["medical_history"],
+                record["diagnosis"],
+                record["test_results"],
                 record["version"]
             )
 
@@ -59,11 +73,15 @@ class PatientRecords(rpyc.Service):
             record["version"] += 1
             return "ok"
     
-    def exposed_add_patient(self, patient_id, name, phone, address):
+    def exposed_add_patient(self, patient_id, name, phone, address, department, medical_history, diagnosis, test_results):
         patient_id = patient_id.strip().upper()
         name = name.strip()
         phone = phone.strip()
         address = address.strip()
+        department = department.strip()
+        medical_history = [history.strip() for history in medical_history]
+        diagnosis = diagnosis.strip()
+        test_results = {test: {key: value for key, value in results.items()} for test, results in test_results.items()}
 
         if not patient_id or not name or not phone or not address:
             return "invalid value"
@@ -76,6 +94,10 @@ class PatientRecords(rpyc.Service):
                 "name": name,
                 "phone": phone,
                 "address": address,
+                "department": department,
+                "medical_history": medical_history,
+                "diagnosis": diagnosis,
+                "test_results": test_results,
                 "version": 1
             }
 
