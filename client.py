@@ -13,7 +13,7 @@ MAX_RETRIES = 10 # amount of attempts to update a record before giving up becaus
 
 class Client:
     def __init__(self):
-        self.connection = rpyc.connect(HOST, PORT)
+        self.connection = rpyc.connect(HOST, PORT, config={"allow_public_attrs": True})
 
     def close(self):
         self.connection.close()
@@ -22,7 +22,14 @@ class Client:
         result = self.connection.root.get_patient(patient_id.strip().upper())
         if result[0] != "ok":
             return None
-        return dict(zip(["name", "phone", "address", "version"], result[1:]))
+        name, phone, address, department, history, diagnosis, tests, version = result[1:]
+       
+        return {
+            "name": name, "phone": phone, "address": address, "department": department,
+            "medical_history": list(history), "diagnosis": diagnosis,
+            "test_results": {test: {k: tests[test][k] for k in tests[test]} for test in tests},
+            "version": version,
+        }
 
     def update_patient(self, patient_id, field, new_value):
         for attempt in range(1, MAX_RETRIES + 1):
@@ -35,12 +42,36 @@ class Client:
                 return status, attempt
         return "conflict", MAX_RETRIES
 
-    def add_patient(self, patient_id, name, phone, address):
-        return self.connection.root.add_patient(patient_id, name, phone, address)
+    def add_patient(self, patient_id, name, phone, address, department,
+                    medical_history, diagnosis, test_results):
+        return self.connection.root.add_patient(patient_id, name, phone, address, department,
+                                                medical_history, diagnosis, test_results)
 
 def print_record(record):
     for key, value in record.items():
-        print(f"  {key.capitalize():<8} {value}")
+        label = key.replace("_", " ").capitalize()
+        if key == "medical_history":
+            value = ", ".join(value) or "none"
+        elif key == "test_results":
+            value = "; ".join(f"{test}: " + ", ".join(f"{k}={v}" for k, v in results.items())
+                              for test, results in value.items()) or "none"
+        print(f"  {label:<16} {value}")
+
+def ask_new_patient():
+    patient_id, name, phone, address, department = [
+        input(f"{label}: ") for label in ("Patient ID", "Name", "Phone", "Address", "Department")]
+    history = [h.strip() for h in input("Medical history (comma-separated): ").split(",") if h.strip()]
+    diagnosis = input("Diagnosis: ")
+    
+    test_results = {}
+    while True:
+        test = input("Test name (blank to finish): ").strip()
+        if not test:
+            break
+        pairs = input(f"{test} results (key=value, comma-separated): ").split(",")
+        test_results[test] = {k.strip(): v.strip() for k, v in
+                              (p.split("=", 1) for p in pairs if "=" in p)}
+    return patient_id, name, phone, address, department, history, diagnosis, test_results
 
 def run_interactive(department):
     client = Client()
@@ -60,8 +91,7 @@ def run_interactive(department):
                 status, attempts = client.update_patient(patient_id, field, input(f"New {field}: "))
                 print(f"Update result: {status} (attempts: {attempts})")
             elif choice == "3":
-                fields = [input(f"{label}: ") for label in ("Patient ID", "Name", "Phone", "Address")]
-                print("Add result:", client.add_patient(*fields))
+                print("Add result:", client.add_patient(*ask_new_patient()))
             elif choice == "4":
                 break
     except (KeyboardInterrupt, EOFError):
@@ -78,7 +108,7 @@ def run_test(patient_id, num_clients):
     print("Starting record:")
     print_record(before)
 
-    barrier = threading.Barrier(num_clients)  # start every department at the same moment
+    barrier = threading.Barrier(num_clients)  
     results = []
     results_lock = threading.Lock()
 
